@@ -10,6 +10,8 @@ import re
 import requests
 from requests import ConnectTimeout
 
+from util.util import Db
+
 urls = [
     "https://www.sslproxies.org",
     # "https://free-proxy-list.net",
@@ -46,7 +48,7 @@ def check_ip_useful(proxy_ip, http_type='http'):
     temp_headers = headers.copy()
     temp_headers['User-Agent'] = random.sample(ua, 1)[0]
     try:
-        r = requests.get(f'{http_type}://bangumi.tv/subject/300963/persons',
+        r = requests.get(f'{http_type}://bangumi.tv/anime/browser?sort=rank',
                          headers=temp_headers,
                          proxies={http_type: f'{http_type}://{proxy_ip}'},
                          timeout=5)
@@ -79,18 +81,6 @@ def free_proxy_spider():
         except:
             print(f'error: {url} can not spider.')
 
-    # faker code:
-    # proxy_ips = []
-    # with open('temphtml.txt', 'r') as f:
-    #     html_text = f.read()
-    # ips = re.findall(
-    #     r"<td>(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})</td><td>(\d{2,5})</td>.*?<td class=\'hx\'>(.*?)</td>",
-    #     html_text)
-    # proxy_ips.extend([(f'{ip}:{port}',
-    #                    'https' if is_https_str == 'yes' else 'http')
-    #                   for ip, port, is_https_str in ips])
-    # for proxy_ip, http_type in proxy_ips:
-    #     check_ip_useful(proxy_ip, http_type)
 
 
 if __name__ == '__main__':
@@ -98,4 +88,7 @@ if __name__ == '__main__':
     # temp_headers['User-Agent'] = random.sample(ua, 1)
     # # requests.get('http://bangumi.tv/anime/browser?sort=rank', headers=temp_headers)
     # print(temp_headers == headers)
-    free_proxy_spider()
+    # free_proxy_spider()
+    db = Db('proxy')
+    db.table_name = 'proxy_ip'
+    print(db.select_db(sql = 'select * from proxy_ip'))
