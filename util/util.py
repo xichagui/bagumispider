@@ -7,98 +7,35 @@
 import threading
 
 import pymysql
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+# 初始化数据库连接:
+from sqlalchemy_utils import create_database, database_exists
+
+DATABASE_ENGINE = 'mysql+pymysql'
+DATABASE_USER = 'root'
+DATABASE_PW = '123456'
+DATABASE_IP = 'localhost:3306'
+PROXY_DATABASE = 'proxy'
+
+DATABASE_URL = f'{DATABASE_ENGINE}://{DATABASE_USER}:{DATABASE_PW}@{DATABASE_IP}'
+
+engine = create_engine(f'{DATABASE_URL}/{PROXY_DATABASE}', echo=False)
+# 创建DBSession类型:
+DBSession = sessionmaker(bind=engine)
+Base = declarative_base()
+session = DBSession()
 
 
-class Db:
-    def __init__(self, database):
-        self.conn = None
-        self.mysql_host = '127.0.0.1'
-        self.mysql_user = 'root'
-        self.mysql_pw = '123456'
-        self.mysql_charset = 'utf8mb4'
-        self.lock = threading.Lock()
-        self.table_name = None
-        self.database = database
-        self.get_conn(database)
+def check_database(database):
+    if not database_exists(f'{DATABASE_URL}/{database}'):
+        database_url = f'{DATABASE_URL}/{database}'
+        create_database(database_url)
 
 
-    def get_conn(self, database: str):
-        try:
-            self.db = self.conn = pymysql.connect(
-                host=self.mysql_host,
-                user=self.mysql_user,
-                password=self.mysql_pw,
-                db=database,
-                charset=self.mysql_charset,
-            )
-            self.cursor = self.db.cursor()
-            self.select_db()
-        except pymysql.OperationalError as e:
-            print(e)
-            if self.create_database(database):
-                self.get_conn(database)
-            else:
-                self.db = False
-                self.cursor = None
-        except pymysql.ProgrammingError as e:
-            print(e)
-            with open('table.sql','r') as f:
-                self.create_table(f.read())
+check_database(PROXY_DATABASE)
 
 
-    def create_database(self, database):
-        db = pymysql.connect(
-            host=self.mysql_host,
-            user=self.mysql_user,
-            password=self.mysql_pw,
-            charset=self.mysql_charset,
-        )
-        sql = f'create database if not exists {database}'
-        try:
-            with db.cursor() as cur:
-                cur.execute(sql)
-                print(f'Create database {database} success.')
-                return True
-        except Exception:
-            print(f'Create database {database} error.')
-            return False
-
-    def create_table(self, sql: str):
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(sql)
-                print('Create table success!')
-            return True
-        except Exception as e:
-            print(e)
-            return False
-
-    def insert_db(self, sql: str):
-        self.lock.acquire()
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(sql)
-                self.db.commit()
-                self.lock.release()
-                return True
-        except Exception as e:
-            self.lock.release()
-            self.db.rollback()
-            return False
-
-    def select_db(self, sql=None):
-        try:
-            if sql:
-                res = self.cursor.execute(sql)
-            else:
-                sql = f'select 1 from {self.table_name} limit 1;'
-                res = self.cursor.execute(sql)
-            return res
-        except Exception as e:
-            print('Table is not exists.')
-            raise e
-
-
-if __name__ == '__main__':
-    db = Db('bagumi')
-    # print(db.select_all())
+def init_db():
+    Base.metadata.create_all(engine)
