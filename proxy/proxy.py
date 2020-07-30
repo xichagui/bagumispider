@@ -7,6 +7,7 @@
 import datetime
 import random
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -14,6 +15,7 @@ import requests
 from sqlalchemy import TIMESTAMP, Column, String
 from sqlalchemy.dialects.mysql import INTEGER
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.sql.expression import func
 from util.util import Base, init_db, session
 
 urls = [
@@ -24,21 +26,19 @@ urls = [
     "https://free-proxy-list.net/anonymous-proxy.html",
 ]
 
-headers = {
-    'Host': 'bangumi.tv',
+HEADERS = {
     'Proxy-Connection': 'keep-alive',
     'Pragma': 'no-cache',
     'Cache-Control': 'no-cache',
     'Upgrade-Insecure-Requests': '1',
     'Accept':
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-    'Referer': 'http://bangumi.tv/anime',
     'Accept-Encoding': 'gzip, deflate',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7,zh-TW;q=0.6',
 }
 
 # 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36',
-ua = [
+UA_LIST = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3764.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3764.0 Safari/537.36',
@@ -71,10 +71,15 @@ class Proxy(Base):
 class ProxyUtil():
     def __init__(self):
         self.proxy_list = []
+        self.proxy_http_list = []
+        self.proxy_https_list = []
+        self.proxy_spider_lock = threading.RLock()
 
     def check_ip_useful(self, proxy_ip, http_type='http'):
-        temp_headers = headers.copy()
-        temp_headers['User-Agent'] = random.sample(ua, 1)[0]
+        temp_headers = HEADERS.copy()
+        temp_headers['User-Agent'] = random.sample(UA_LIST, 1)[0]
+        temp_headers['Host'] = 'bangumi.tv'
+        temp_headers['Referer'] = 'http://bangumi.tv/anime'
         try:
             r = requests.get(
                 f'{http_type}://bangumi.tv/anime/browser?sort=rank',
@@ -135,6 +140,63 @@ class ProxyUtil():
                     print(e)
                     session.rollback()
 
+    def request_with_proxy(self,
+                           url,
+                           request_type='get',
+                           ua=None,
+                           headers=None,
+                           timeout=5,
+                           error_time = 0):
+        if 'http' not in url:
+            print('Need full url likes "http://xxx.com"')
+            raise Exception('Need full url likes "http://xxx.com"')
+        if request_type not in ['get', 'post']:
+            print(f'The request_type "{request_type}" is not support.')
+            raise Exception(
+                f'The request_type "{request_type}" is not support.')
+        request_func = getattr(requests, request_type)
+        if not headers:
+            headers = HEADERS.copy()
+        if not ua:
+            ua = random.sample(UA_LIST, 1)[0]
+
+        headers['User-Agent'] = ua
+        proxies = {}
+        self.check_proxy_list()
+        proxies['http'] = self.proxy_http_list[random.randint(0, len(self.proxy_http_list) - 1)]
+        proxies['https'] = self.proxy_https_list[random.randint(0, len(self.proxy_https_list) - 1)]
+
+        try:
+            req = request_func(url, headers=headers, timeout=timeout, proxies=proxies)
+            return req
+        except (requests.exceptions.MissingSchema, requests.exceptions.ConnectionError):
+            print('The url is wrong, please check the url.')
+        except requests.exceptions.ConnectTimeout:
+            # todo 代理失败次数+1
+            return self.request_with_proxy(url,
+                           request_type='get',
+                           error_time = 1)
+
+    def check_proxy_list(self):
+        if not self.proxy_http_list or len(self.proxy_http_list) <= 5:
+            self.proxy_spider_lock.acquire()
+            self.proxy_http_list = self.get_proxy_list('http')
+            self.proxy_spider_lock.release()
+
+        if not self.proxy_https_list or len(self.proxy_https_list) <= 5:
+            self.proxy_spider_lock.acquire()
+            self.proxy_https_list = self.get_proxy_list('https')
+            self.proxy_spider_lock.release()
+
+    def get_proxy_list(self, http_type):
+        res = session.query(Proxy).filter(Proxy.http_type == http_type, Proxy.failure_times < 5).order_by(
+            func.random()).limit(10).all()
+        proxy_list = [proxy.address for proxy in res]
+
+        if len(proxy_list) < 10:
+            self.free_proxy_spider()
+            proxy_list = self.get_proxy_list(http_type)
+        return proxy_list
 
 if __name__ == '__main__':
     init_db()
