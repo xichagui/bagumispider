@@ -4,12 +4,11 @@
 # @Site    :
 # @File    : util.py
 # @Software: PyCharm
-import threading
 
-import pymysql
+import redis
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 # 初始化数据库连接:
 from sqlalchemy_utils import create_database, database_exists
 
@@ -21,11 +20,15 @@ PROXY_DATABASE = 'proxy'
 
 DATABASE_URL = f'{DATABASE_ENGINE}://{DATABASE_USER}:{DATABASE_PW}@{DATABASE_IP}'
 
-engine = create_engine(f'{DATABASE_URL}/{PROXY_DATABASE}', echo=False)
+engine = create_engine(f'{DATABASE_URL}/{PROXY_DATABASE}', echo=False, pool_size=20)
 # 创建DBSession类型:
 DBSession = sessionmaker(bind=engine)
 Base = declarative_base()
-session = DBSession()
+Session = scoped_session(DBSession)
+
+#redis连接池
+redis_pool = redis.ConnectionPool(host='localhost', port=6379, db=0, decode_responses=True)
+r = redis.StrictRedis(connection_pool=redis_pool)
 
 
 def check_database(database):
